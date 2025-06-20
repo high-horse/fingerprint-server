@@ -1,0 +1,142 @@
+package main
+
+import (
+	"context"
+	"encoding/base64"
+	"fmt"
+	"log"
+	"os"
+	"runtime"
+	"strings"
+	"time"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/jtejido/sourceafis"
+	"github.com/jtejido/sourceafis/config"
+)
+
+type TransparencyContents struct{}
+
+func (c *TransparencyContents) Accepts(key string) bool {
+	return true
+}
+
+func (c *TransparencyContents) Accept(key, mime string, data []byte) error {
+	return nil
+}
+
+var logWriter *log.Logger
+
+
+func main() {
+	logWriter = logger()
+	app := fiber.New()
+
+	app.Get("/health", func(c *fiber.Ctx) error {
+		logWriter.Println("health check")
+		return c.SendString("ok")
+	})
+
+	app.Post("/compare-fingerprints", handleCompareFingerprints)
+	log.Fatal(app.Listen(":3000"))
+}
+
+func handleCompareFingerprints(c *fiber.Ctx) error {
+	var req CompareFingerprintRequest
+
+	if err := c.BodyParser(&req); err != nil {
+		log.Printf("Error parsing request: %v", err)
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	log.Printf("Received fingerprint comparison request")
+	score, err := compareFingerprintsBase64(req.ProbeImage, req.ReferenceImage)
+	if err != nil {
+		log.Printf("Comparison failed: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	log.Printf("Comparison successful, score: %.2f", score)
+	return c.JSON(fiber.Map{
+		"matchScore": score,
+	})
+}
+
+func logger() *log.Logger {
+	logDir := "log"
+	if err := os.MkdirAll(logDir, os.ModePerm); err != nil {
+		log.Fatalf("Failed to create log directory: %v", err)
+	}
+
+	logFilename := fmt.Sprintf("%s/sourceafis_%s.log", logDir, time.Now().Format("2006-01-02"))
+	file, err := os.OpenFile(logFilename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("Failed to open log file: %v", err)
+	}
+
+	return log.New(file, "sourceafis: ", log.LstdFlags|log.Lshortfile)
+}
+
+func stripDataURLPrefix(data string) string {
+	if idx := strings.Index(data, "base64,"); idx != -1 {
+		return data[idx+7:]
+	}
+	return data
+}
+
+func compareFingerprintsBase64(probeBase64, referenceBase64 string) (float64, error) {
+	probeBase64 = stripDataURLPrefix(probeBase64)
+	referenceBase64 = stripDataURLPrefix(referenceBase64)
+
+	probeData, err := base64.StdEncoding.DecodeString(probeBase64)
+	if probeData == nil {
+		logWriter.Println(" nil probe data ", string(probeData))
+	}
+	logWriter.Println(" logging probe data", string(probeData))
+	os.Exit(1)
+	if err != nil {
+		return 0, fmt.Errorf("invalid base64 for probe image: %w", err)
+	}
+
+	referenceData, err := base64.StdEncoding.DecodeString(referenceBase64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid base64 for reference image: %w", err)
+	}
+
+	config.LoadDefaultConfig()
+	config.Config.Workers = runtime.NumCPU()
+	logger := sourceafis.NewTransparencyLogger(new(TransparencyContents))
+	templateCreator := sourceafis.NewTemplateCreator(logger)
+
+	probeImg, err := LoadImageFromBytes(probeData)
+	if err != nil {
+		return 0, fmt.Errorf("failed to load probe image: %w", err)
+	}
+
+	referenceImg, err := LoadImageFromBytes(referenceData)
+	if err != nil {
+		return 0, fmt.Errorf("failed to load reference image: %w", err)
+	}
+
+	probeTemplate, err := templateCreator.Template(probeImg)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create probe template: %w", err)
+	}
+
+	referenceTemplate, err := templateCreator.Template(referenceImg)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create reference template: %w", err)
+	}
+
+	matcher, err := sourceafis.NewMatcher(logger, probeTemplate)
+	if err != nil {
+		return 0, fmt.Errorf("failed to initialize matcher: %w", err)
+	}
+
+	score := matcher.Match(context.Background(), referenceTemplate)
+	return score, nil
+}

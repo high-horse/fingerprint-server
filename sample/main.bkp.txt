@@ -1,0 +1,153 @@
+
+package main
+
+import (
+	"context"
+	"encoding/base64"
+	"fmt"
+	"log"
+	"os"
+	"runtime"
+	"strings"
+	"time"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/jtejido/sourceafis"
+	"github.com/jtejido/sourceafis/config"
+)
+
+type TransparencyContents struct{}
+
+func (c *TransparencyContents) Accepts(key string) bool {
+	return true
+}
+
+func (c *TransparencyContents) Accept(key, mime string, data []byte) error {
+	return nil
+}
+
+var logWriter *log.Logger
+
+
+
+func testmain() {
+	  log.SetFlags(log.LstdFlags | log.Lshortfile)
+	now := time.Now()
+	config.LoadDefaultConfig()
+	config.Config.Workers = runtime.NumCPU()
+	// sample/left-i/I_Left1_converted.jpg
+	probeName := "left-i/I_Left1_converted.jpg"
+	// probeImg, err := sourceafis.LoadImage("old_samples/probe.png")
+	probeImg, err := sourceafis.LoadImage(probeName)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	l := sourceafis.NewTransparencyLogger(new(TransparencyContents))
+	tc := sourceafis.NewTemplateCreator(l)
+	probe, err := tc.Template(probeImg)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	
+	// candidateImg, err := sourceafis.LoadImage("old_samples/matching.png")
+	candidateImg, err := sourceafis.LoadImage("left-i/I_Left1_converted.jpg")
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	candidate, err := tc.Template(candidateImg)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	// candidateImg2, err := sourceafis.LoadImage("old_samples/nonmatching.png")
+	candidateImg2, err := sourceafis.LoadImage("left-i/I_Left2_converted.jpg")
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	candidate2, err := tc.Template(candidateImg2)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	// sample/left-i/I_Left3_converted.png
+	candidateImg3, err := sourceafis.LoadImage("left-i/I_Left3_converted.png")
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	candidate3, err := tc.Template(candidateImg3)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	candidateImg4, err := sourceafis.LoadImage("left-i/I_Left4_converted.png")
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	candidate4, err := tc.Template(candidateImg4)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	candidateImg5, err := sourceafis.LoadImage("left-i/I_Left5_converted.png")
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	candidate5, err := tc.Template(candidateImg5)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+
+	// right index finger
+	candidateImg_RI_1, err := sourceafis.LoadImage("right-i/I_Right_converted.jpg")
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	candidate_ri_1, err := tc.Template(candidateImg_RI_1)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	candidateImg_RI_2, err := sourceafis.LoadImage("right-i/I_Right1_converted.jpg")
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	candidate_ri_2, err := tc.Template(candidateImg_RI_2)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	candidateImg_RI_3, err := sourceafis.LoadImage("right-i/I_Right2_converted.jpg")
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	candidate_ri_3, err := tc.Template(candidateImg_RI_3)
+	if err != nil {
+		log.Fatal(err)
+	}
+	
+	matcher, err := sourceafis.NewMatcher(l, probe)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	ctx := context.Background()
+	fmt.Println("Same image ===> ", matcher.Match(ctx, candidate))
+	fmt.Println("same image ===> ", matcher.Match(ctx, candidate2))
+	fmt.Println("candicate 3 score ===> ", matcher.Match(ctx, candidate3))
+	fmt.Println("candicate 4 score ===> ", matcher.Match(ctx, candidate4))
+	fmt.Println("candicate 5 score ===> ", matcher.Match(ctx, candidate5))
+
+	fmt.Println("Candidate r_i 1 ===> ", matcher.Match(ctx, candidate_ri_1))
+	fmt.Println("Candidate r_i_2 ==> ", matcher.Match(ctx, candidate_ri_2))
+	fmt.Println("Candidate r_i_3 ==> ", matcher.Match(ctx, candidate_ri_3))
+
+
+	fmt.Println("elapsed: ", time.Since(now))
+}

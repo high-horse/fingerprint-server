@@ -6,15 +6,52 @@ import (
 	"strings"
 	"time"
 	"os"
+	"io"
 	"os/exec"
 	"fmt"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/logger"
+	fiberLogger "github.com/gofiber/fiber/v2/middleware/logger"
+
+	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
 )
 
+// setupLogger configures the file-rotatelogs output so that the log file follows
+// the pattern "logs/finger_yyyy-mm-dd.log" and rotates every 24 hours
+func setupLogger() (io.Writer, error) {
+    // Ensure the logs directory exists.
+    if err := os.MkdirAll("logs", 0755); err != nil {
+        return nil, fmt.Errorf("failed to create logs directory: %v", err)
+    }
+
+    // The log file name pattern. %Y, %m, and %d will be replaced with the current year, month, and day.
+    rotateLogs, err := rotatelogs.New(
+        "logs/finger_%Y-%m-%d.log",
+        rotatelogs.WithRotationTime(24*time.Hour), // rotate every 24 hours
+        rotatelogs.WithMaxAge(7*24*time.Hour),       // keep logs for 7 days (optional)
+    )
+    if err != nil {
+        return nil, fmt.Errorf("failed to initialize file rotatelogs: %v", err)
+    }
+
+    // Optionally, log to both stdout and the file.
+    mw := io.MultiWriter(os.Stdout, rotateLogs)
+    return mw, nil
+}
+
+
 func main() {
+	logOutput, err := setupLogger()
+	if err != nil {
+        log.Fatalf("Error setting up logger: %v", err)
+    }
+
+    // Set the log flags to include date, time, and short file information.
+	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+
+	// Direct Go's default logger output to our log writer.
+    log.SetOutput(logOutput)
 
 	// Create Fiber app
 	app := fiber.New(fiber.Config{
@@ -30,7 +67,11 @@ func main() {
 	})
 
 	// Middleware
-	app.Use(logger.New())
+	// app.Use(logger.New())
+	// Use middleware logging for Fiber, directing logs to our log output.
+    app.Use(fiberLogger.New(fiberLogger.Config{
+        Output: logOutput,
+    }))
 	app.Use(cors.New())
 
 	// Health check endpoint
@@ -93,6 +134,7 @@ func matchFingerprints(c *fiber.Ctx)error {
 
 	log.Println("Probe image stored at:", probefile)
 	log.Println("Candidate image stored at:", candidatefile)
+
 	score, err := compareFingerprint(probefile, candidatefile)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(MatchResponse{

@@ -1,50 +1,20 @@
 package main
 
 import (
-	"bytes"
-	"context"
 	"encoding/base64"
-	"fmt"
-	"image"
-	"image/jpeg"
-	"image/png"
 	"log"
-	"runtime"
 	"strings"
 	"time"
+	"os"
+	"os/exec"
+	"fmt"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
-	"github.com/jtejido/sourceafis"
-	"github.com/jtejido/sourceafis/config"
 )
 
-type TransparencyContents struct{}
-
-func (c *TransparencyContents) Accepts(key string) bool {
-	return true
-}
-
-func (c *TransparencyContents) Accept(key, mime string, data []byte) error {
-	return nil
-}
-
-type MatchRequest struct {
-	ProbeImage     string `json:"image1"`     // base64 encoded image
-	CandidateImage string `json:"image2"` // base64 encoded image
-}
-
-type MatchResponse struct {
-	Score   float64 `json:"score"`
-	Elapsed string  `json:"elapsed"`
-	Error   string  `json:"error,omitempty"`
-}
-
 func main() {
-	// Initialize SourceAFIS configuration
-	config.LoadDefaultConfig()
-	config.Config.Workers = runtime.NumCPU()
 
 	// Create Fiber app
 	app := fiber.New(fiber.Config{
@@ -77,9 +47,11 @@ func main() {
 	// Start server
 	log.Println("Server starting on :9090")
 	log.Fatal(app.Listen(":9090"))
+
 }
 
-func matchFingerprints(c *fiber.Ctx) error {
+
+func matchFingerprints(c *fiber.Ctx)error {
 	start := time.Now()
 
 	var req MatchRequest
@@ -99,105 +71,117 @@ func matchFingerprints(c *fiber.Ctx) error {
 		})
 	}
 
-	// Convert base64 to images
-	probeImg, err := base64ToSourceAFISImage(req.ProbeImage)
+	probefile, err := storeImage(req.ProbeImage)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(MatchResponse{
-			Error: "Invalid probe image: " + err.Error(),
+			Error: "Failed to store probe image: " + err.Error(),
+		})
+	}
+	candidatefile, err := storeImage(req.CandidateImage)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(MatchResponse{
+			Error: "Failed to store candidate image: " + err.Error(),
 		})
 	}
 
-	candidateImg, err := base64ToSourceAFISImage(req.CandidateImage)
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(MatchResponse{
-			Error: "Invalid candidate image: " + err.Error(),
-		})
-	}
+	sanitizeImage(probefile)
+	sanitizeImage(candidatefile)
 
-	// Process fingerprint matching
-	score, err := processFingerprints(probeImg, candidateImg)
+	defer deleteFile(probefile)
+	defer deleteFile(candidatefile)
+
+
+	log.Println("Probe image stored at:", probefile)
+	log.Println("Candidate image stored at:", candidatefile)
+	score, err := compareFingerprint(probefile, candidatefile)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(MatchResponse{
-			Error: "Fingerprint processing failed: " + err.Error(),
+			Error: "Failed to compare fingerprints: " + err.Error(),
 		})
 	}
-
-	return c.JSON(MatchResponse{
+	log.Println("Fingerprint comparison score:", score)
+	// Prepare response
+	response := MatchResponse{
 		Score:   score,
 		Elapsed: time.Since(start).String(),
-	})
+	}
+	if score > 0.5 {
+		response.Error = "Match found with score: " + fmt.Sprintf("%.2f", score)
+	} else {
+		response.Error = "No match found, score: " + fmt.Sprintf("%.2f", score)
+	}
+	log.Println("Response:", response)
+	
+	return c.JSON(response)
 }
 
-func base64ToSourceAFISImage(base64String string) (*sourceafis.Image, error) {
-	// Remove data URL prefix if present (e.g., "data:image/png;base64,")
-	if strings.Contains(base64String, ",") {
-		parts := strings.Split(base64String, ",")
-		if len(parts) == 2 {
-			base64String = parts[1]
+
+func deleteFile(path string) {
+	if err := os.Remove(path); err != nil {
+		log.Printf("Failed to delete file %s: %v", path, err)
+	} else {
+		log.Printf("Deleted file: %s", path)
+	}
+}
+
+func sanitizeImage(imagePath string) {
+	// Build sanitized output path (overwrite same file)
+	// cmd := exec.Command("convert", imagePath, "-colorspace", "Gray", "-density", "500", imagePath)
+	cmd := exec.Command("convert", imagePath, imagePath)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Failed to sanitize image %s: %v\nOutput: %s", imagePath, err, string(output))
+	} else {
+		log.Printf("Sanitized image: %s", imagePath)
+	}
+}
+
+func storeImage(base64img string) (string, error) {
+	ext := "png" // Default extension, can be changed based on image type
+	if strings.HasPrefix(base64img, "data:") {
+		parts := strings.SplitN(base64img,  "," , 2)
+		if len(parts) != 2 {
+			return "", fiber.NewError(fiber.StatusBadRequest, "Invalid base64 image format")
+		}
+		meta := parts[0]
+		base64img = parts[1]
+
+		if strings.Contains(meta, "image/jpeg") {
+			ext = "jpg"
+		} else if strings.Contains(meta, "image/png") {
+			ext = "png"
+		} else if strings.Contains(meta, "image/gif") {
+			ext = "gif"
+		} else {
+			return "", fiber.NewError(fiber.StatusUnsupportedMediaType, "Unsupported image type")
 		}
 	}
 
-	// Decode base64 string
-	data, err := base64.StdEncoding.DecodeString(base64String)
+	// decode Baase64 image
+	decoded, err := base64.StdEncoding.DecodeString(base64img)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode base64: %w", err)
+		return "", fiber.NewError(fiber.StatusBadRequest, "Failed to decode base64: "+err.Error())
 	}
 
-	// Create reader from byte data
-	reader := bytes.NewReader(data)
-
-	// Try to decode as different image formats
-	var img image.Image
-	
-	// Reset reader position
-	reader.Seek(0, 0)
-	
-	// Try PNG first
-	img, err = png.Decode(reader)
-	if err != nil {
-		// Reset reader and try JPEG
-		reader.Seek(0, 0)
-		img, err = jpeg.Decode(reader)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode image (tried PNG and JPEG): %w", err)
-		}
+	// ensure dir exists
+	if err := os.MkdirAll("temp", os.ModePerm); err != nil {
+		return "", fiber.NewError(fiber.StatusInternalServerError, "Failed to create temp directory: "+err.Error())
 	}
 
-	// Convert to SourceAFIS Image
-	sourceafisImg, err := sourceafis.NewFromImage(img)
+
+	// create filename
+	filename := fmt.Sprintf("image_%d.%s", time.Now().UnixNano(), ext)
+	path := fmt.Sprintf("./temp/%s", filename)
+
+
+		// Write file
+	err = os.WriteFile(path, decoded, 0644)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create SourceAFIS image: %w", err)
+		return "", fiber.NewError(fiber.StatusInternalServerError, "Failed to write image: "+err.Error())
+		// return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to write image"})
 	}
 
-	return sourceafisImg, nil
-}
+	return path, nil
 
-func processFingerprints(probeImg, candidateImg *sourceafis.Image) (float64, error) {
-	// Create transparency logger
-	l := sourceafis.NewTransparencyLogger(new(TransparencyContents))
-	tc := sourceafis.NewTemplateCreator(l)
-
-	// Create probe template
-	probe, err := tc.Template(probeImg)
-	if err != nil {
-		return 0, fmt.Errorf("failed to create probe template: %w", err)
-	}
-
-	// Create candidate template
-	candidate, err := tc.Template(candidateImg)
-	if err != nil {
-		return 0, fmt.Errorf("failed to create candidate template: %w", err)
-	}
-
-	// Create matcher
-	matcher, err := sourceafis.NewMatcher(l, probe)
-	if err != nil {
-		return 0, fmt.Errorf("failed to create matcher: %w", err)
-	}
-
-	// Perform matching
-	ctx := context.Background()
-	score := matcher.Match(ctx, candidate)
-
-	return score, nil
 }

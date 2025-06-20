@@ -31,8 +31,8 @@ func (c *TransparencyContents) Accept(key, mime string, data []byte) error {
 }
 
 type MatchRequest struct {
-	ProbeImage     string `json:"probe_image"`     // base64 encoded image
-	CandidateImage string `json:"candidate_image"` // base64 encoded image
+	ProbeImage     string `json:"image1"`     // base64 encoded image
+	CandidateImage string `json:"image2"` // base64 encoded image
 }
 
 type MatchResponse struct {
@@ -75,8 +75,8 @@ func main() {
 	app.Post("/match", matchFingerprints)
 
 	// Start server
-	log.Println("Server starting on :8080")
-	log.Fatal(app.Listen(":3000"))
+	log.Println("Server starting on :9090")
+	log.Fatal(app.Listen(":9090"))
 }
 
 func matchFingerprints(c *fiber.Ctx) error {

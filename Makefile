@@ -1,6 +1,6 @@
 # convert-img: 
 #  	convert images/I_Left1.jpg images/I_Left1_converted.jpg
-
+# sudo nano /etc/systemd/system/fingerprint.service
 SERVICE_NAME=fingerprint
 
 

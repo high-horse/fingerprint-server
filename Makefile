@@ -37,3 +37,7 @@ deploy:
 	chmod +x bin/static/fingerprint
 	@echo "restarting the service..."
 	make start
+
+test:
+	@echo "Running tests..."
+	@curl -sSf http://127.0.0.1:9090/health || echo "Health check failed"

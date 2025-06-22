@@ -11,6 +11,10 @@ type MatchRequest struct {
 }
 
 type CompareFingerprintResponse struct {
+	StdOutput CompareFingerprintResponseV2 `json:"stdClass"` 
+}
+
+type CompareFingerprintResponseV2 struct {
 	Score float64 `json:"score"`
 	Match bool `json:"is_match"`
 	Confidence string `json:"confidence"`

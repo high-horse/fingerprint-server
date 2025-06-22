@@ -62,6 +62,9 @@ func compareFingerprint(probeImage, candidatImage string) (float64, error) {
 	return score, nil
 }
 
+
+
+
 func example() {
 	now := time.Now()
 	config.LoadDefaultConfig()

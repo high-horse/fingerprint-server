@@ -85,7 +85,7 @@ func main() {
 	})
 
 	// Fingerprint matching endpoint
-	app.Post("/match", matchFingerprints)
+	app.Post("/compare-fingerprints", matchFingerprints)
 
 	// Start server
 	log.Println("Server starting on :9090")

@@ -28,13 +28,16 @@ func setupLogger() (io.Writer, error) {
         rotatelogs.WithRotationTime(24*time.Hour), // rotate every 24 hours
         rotatelogs.WithMaxAge(7*24*time.Hour),       // keep logs for 7 days (optional)
     )
+
     if err != nil {
         return nil, fmt.Errorf("failed to initialize file rotatelogs: %v", err)
     }
 
+	return rotateLogs, nil
+
     // Optionally, log to both stdout and the file.
-    mw := io.MultiWriter(os.Stdout, rotateLogs)
-    return mw, nil
+    // mw := io.MultiWriter(os.Stdout, rotateLogs)
+    // return mw, nil
 }
 
 
@@ -68,11 +71,13 @@ func main() {
 	// Use middleware logging for Fiber, directing logs to our log output.
     app.Use(fiberLogger.New(fiberLogger.Config{
         Output: logOutput,
+		Format: "[${time}] ${status} - ${latency} ${method} ${path}\n",
     }))
 	app.Use(cors.New())
 
 	// Health check endpoint
 	app.Get("/health", func(c *fiber.Ctx) error {
+		log.Println("Health check called") 
 		return c.JSON(fiber.Map{
 			"status": "ok",
 			"time":   time.Now(),

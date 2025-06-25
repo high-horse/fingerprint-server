@@ -41,3 +41,8 @@ deploy:
 test:
 	@echo "Running tests..."
 	@curl -sSf http://127.0.0.1:9090/health || echo "Health check failed"
+
+
+test-service:
+	@echo "Running service tests..."
+	sudo systemctl status ${SERVICE_NAME}.service

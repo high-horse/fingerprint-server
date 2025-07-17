@@ -1,11 +1,11 @@
 package main
 
 import (
-	"log"
-	"time"
-	"os"
-	"io"
 	"fmt"
+	"io"
+	"log"
+	"os"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -17,41 +17,40 @@ import (
 // setupLogger configures the file-rotatelogs output so that the log file follows
 // the pattern "logs/finger_yyyy-mm-dd.log" and rotates every 24 hours
 func setupLogger() (io.Writer, error) {
-    // Ensure the logs directory exists.
-    if err := os.MkdirAll("logs", 0755); err != nil {
-        return nil, fmt.Errorf("failed to create logs directory: %v", err)
-    }
+	// Ensure the logs directory exists.
+	if err := os.MkdirAll("logs", 0755); err != nil {
+		return nil, fmt.Errorf("failed to create logs directory: %v", err)
+	}
 
-    // The log file name pattern. %Y, %m, and %d will be replaced with the current year, month, and day.
-    rotateLogs, err := rotatelogs.New(
-        "logs/finger_%Y-%m-%d.log",
-        rotatelogs.WithRotationTime(24*time.Hour), // rotate every 24 hours
-        rotatelogs.WithMaxAge(7*24*time.Hour),       // keep logs for 7 days (optional)
-    )
+	// The log file name pattern. %Y, %m, and %d will be replaced with the current year, month, and day.
+	rotateLogs, err := rotatelogs.New(
+		"logs/finger_%Y-%m-%d.log",
+		rotatelogs.WithRotationTime(24*time.Hour), // rotate every 24 hours
+		rotatelogs.WithMaxAge(7*24*time.Hour),     // keep logs for 7 days (optional)
+	)
 
-    if err != nil {
-        return nil, fmt.Errorf("failed to initialize file rotatelogs: %v", err)
-    }
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize file rotatelogs: %v", err)
+	}
 
 	return rotateLogs, nil
 
-    // Optionally, log to both stdout and the file.
-    // mw := io.MultiWriter(os.Stdout, rotateLogs)
-    // return mw, nil
+	// Optionally, log to both stdout and the file.
+	// mw := io.MultiWriter(os.Stdout, rotateLogs)
+	// return mw, nil
 }
-
 
 func main() {
 	logOutput, err := setupLogger()
 	if err != nil {
-        log.Fatalf("Error setting up logger: %v", err)
-    }
+		log.Fatalf("Error setting up logger: %v", err)
+	}
 
-    // Set the log flags to include date, time, and short file information.
+	// Set the log flags to include date, time, and short file information.
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 
 	// Direct Go's default logger output to our log writer.
-    log.SetOutput(logOutput)
+	log.SetOutput(logOutput)
 
 	// Create Fiber app
 	app := fiber.New(fiber.Config{
@@ -69,15 +68,15 @@ func main() {
 	// Middleware
 	// app.Use(logger.New())
 	// Use middleware logging for Fiber, directing logs to our log output.
-    app.Use(fiberLogger.New(fiberLogger.Config{
-        Output: logOutput,
+	app.Use(fiberLogger.New(fiberLogger.Config{
+		Output: logOutput,
 		Format: "[${time}] ${status} - ${latency} ${method} ${path}\n",
-    }))
+	}))
 	app.Use(cors.New())
 
 	// Health check endpoint
 	app.Get("/health", func(c *fiber.Ctx) error {
-		log.Println("Health check called") 
+		log.Println("Health check called")
 		return c.JSON(fiber.Map{
 			"status": "ok",
 			"time":   time.Now(),
@@ -93,8 +92,7 @@ func main() {
 
 }
 
-
-func matchFingerprints(c *fiber.Ctx)error {
+func matchFingerprints(c *fiber.Ctx) error {
 	start := time.Now()
 
 	var req MatchRequest
@@ -133,7 +131,6 @@ func matchFingerprints(c *fiber.Ctx)error {
 	defer deleteFile(probefile)
 	defer deleteFile(candidatefile)
 
-
 	log.Println("Probe image stored at:", probefile)
 	log.Println("Candidate image stored at:", candidatefile)
 
@@ -149,32 +146,37 @@ func matchFingerprints(c *fiber.Ctx)error {
 	var confidence string
 
 	switch {
-	case score > 300:
+	case score >= 300:
+		match = true
+		confidence = "Very High"
+	case score >= 150 && score < 300:
 		match = true
 		confidence = "High"
-	case score > 199 && score <= 300:
+	case score >= 90 && score < 150:
 		match = true
 		confidence = "Medium"
-	case score <= 199:
+	case score >= 40 && score < 90:
 		match = false
 		confidence = "Low"
-	default:
+	case score >= 0 && score < 40:
 		match = false
 		confidence = "None"
+	default:
+		match = false
+		confidence = "Unknown"
 	}
 
-	// prepare response 
+	// prepare response
 	response := CompareFingerprintResponse{
 		StdOutput: CompareFingerprintResponseV2{
 			Score:      score,
-			Match:      match, 
+			Match:      match,
 			Confidence: confidence,
-			Details:    map[string]interface{}{
+			Details: map[string]interface{}{
 				"elapsed_tile": time.Since(start).String(),
 			},
-			Message:    "Fingerprint comparison completed successfully",
+			Message: "Fingerprint comparison completed successfully",
 		},
 	}
 	return c.JSON(response)
 }
-
